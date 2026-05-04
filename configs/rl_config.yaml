@@ -1,0 +1,52 @@
+# Example RL config for scripts/rl_train.py
+# Paths are resolved relative to the repo root.
+
+student_model: "Qwen/Qwen3-4B-Instruct-2507"
+# Optional: a tinker:// path (e.g. an SFT checkpoint) to start GRPO from.
+# Set to null to start from a fresh LoRA on student_model.
+starting_training_path: null
+train_system_prompt_file: "prompts/benign_system_prompt.txt"
+eval_system_prompt_file: "prompts/benign_system_prompt.txt"
+olympiads_prompt_file: "prompts/olympiads_prompt.txt"
+save_dir: "runs/rl_test"
+
+# GRPO hyperparams. Maps onto utils.rl_train + GenerateConfig.
+rl_config:
+  # Optimization
+  learning_rate: 1.0e-5
+  num_iterations: 50
+  problems_per_iter: 16        # olympiad problems sampled per GRPO iter
+  group_size: 4                # completions per problem (rl_train num_samples)
+  batch_size: null             # tinker per-grad-step batch; null = one big step
+  save_every_n_iters: 5        # save sampling weights every N iters (and final)
+
+  # Sampling during rollouts
+  temperature: 1.0
+  max_tokens: 10000
+  max_concurrent: 2000
+
+  # Advantage handling
+  normalize_advantages_by_length: false
+  center_rewards: true
+
+  # Training dataset slice
+  train_split: "red"
+  num_train_problems: 1000
+  seed: 42
+
+# GenerateConfig used for evals (not rollouts).
+generate_config:
+  temperature: 0.0
+  max_tokens: 10000
+  max_concurrent: 2000
+  num_samples: 1
+  cache: true
+
+eval:
+  # Set any of these to null to skip that eval.
+  mmlu_num_problems: 200
+  ifeval_num_problems: 200
+  olympiads_num_problems: 200
+  olympiads_split: "val"
+  math500_num_problems: 200
+  judge_model: "Qwen/Qwen3-30B-A3B-Instruct-2507"

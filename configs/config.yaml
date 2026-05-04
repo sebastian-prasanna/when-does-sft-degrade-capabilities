@@ -1,0 +1,38 @@
+# Example training config for scripts/train.py
+# Paths are resolved relative to the repo root.
+
+student_model: "Qwen/Qwen3-4B-Instruct-2507"
+training_path: null  # If set, resume training from this saved training checkpoint instead of starting fresh from student_model.
+training_data: "stored_outputs/Qwen_Qwen3-235B-A22B-Instruct-2507.json"
+train_system_prompt_file: "prompts/benign_system_prompt.txt"  # .txt → wrapped as a system message; .json → list of chat messages used as the SFTExample prefix
+eval_system_prompt_file: "prompts/benign_system_prompt.txt"
+save_dir: "training_runs/qwen4b_from_qwen235b"
+
+# Mirrors utils.TrainConfig. Any field can be null to fall back to the
+# dataclass default. num_examples is also used to slice training_data.
+train_config:
+  lr: 5e-5
+  batch_size: 16
+  num_epochs: 1
+  num_examples: 1600
+  save_sampling_step: 1
+  save_training_step: 1
+  save_every_n_steps: 20
+  save_training_every_n_steps: null
+
+# Mirrors utils.GenerateConfig — used for every eval.
+generate_config:
+  temperature: 0.0
+  max_tokens: 10000
+  max_concurrent: 2000
+  num_samples: 1
+  cache: true
+
+eval:
+  # Set any of these to null to skip that eval.
+  mmlu_num_problems: 200
+  ifeval_num_problems: 200
+  olympiads_num_problems: 200
+  olympiads_split: "val"
+  math500_num_problems: 200  # null = full integer subset
+  judge_model: "Qwen/Qwen3-30B-A3B-Instruct-2507"

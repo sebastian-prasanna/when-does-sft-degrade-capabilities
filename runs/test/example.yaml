@@ -1,0 +1,36 @@
+# Example training config for scripts/train.py
+# Paths are resolved relative to the repo root.
+
+student_model: "Qwen/Qwen3-30B-A3B-Instruct-2507"
+training_data: "/workspace/when-does-sft-degrade-capabilities/stored_outputs/meta-llama_Llama-3.1-8B-Instruct.json"
+system_prompt_file: "prompts/benign_system_prompt.txt"
+save_dir: "runs/test"
+
+# Mirrors utils.TrainConfig. Any field can be null to fall back to the
+# dataclass default. num_examples is also used to slice training_data.
+train_config:
+  lr: 5e-5
+  batch_size: 32
+  num_epochs: 1
+  num_examples: 1600
+  save_sampling_step: 1
+  save_training_step: -1
+  save_every_n_steps: 10
+  save_training_every_n_steps: null
+
+# Mirrors utils.GenerateConfig — used for every eval.
+generate_config:
+  temperature: 0.0
+  max_tokens: 10000
+  max_concurrent: 2000
+  num_samples: 1
+  cache: true
+
+eval:
+  # Set any of these to null to skip that eval.
+  mmlu_num_problems: 100
+  ifeval_num_problems: 100
+  olympiads_num_problems: 100
+  olympiads_split: "val"
+  math500_num_problems: 293  # null = full integer subset
+  judge_model: "Qwen/Qwen3-30B-A3B-Instruct-2507"
