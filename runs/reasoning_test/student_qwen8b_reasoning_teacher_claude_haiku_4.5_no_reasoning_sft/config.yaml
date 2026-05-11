@@ -1,0 +1,28 @@
+student_model: Qwen/Qwen3-8B
+training_path: null
+training_data: stored_outputs/temp_1/anthropic_claude-haiku-4.5.json
+train_system_prompt_file: prompts/no_reasoning_system_prompt.txt
+eval_system_prompt_file: prompts/benign_system_prompt.txt
+save_dir: runs/reasoning_test/student_qwen8b_reasoning_teacher_claude_haiku_4.5_no_reasoning_sft
+train_config:
+  lr: 5e-5
+  batch_size: 16
+  num_epochs: 1
+  num_examples: 1600
+  save_sampling_step: 1
+  save_training_step: 1
+  save_every_n_steps: 20
+  save_training_every_n_steps: null
+generate_config:
+  temperature: 0.0
+  max_tokens: 10000
+  max_concurrent: 2000
+  num_samples: 1
+  cache: true
+eval:
+  mmlu_num_problems: null
+  ifeval_num_problems: null
+  olympiads_num_problems: 200
+  olympiads_split: val
+  math500_num_problems: 200
+  judge_model: Qwen/Qwen3-30B-A3B-Instruct-2507

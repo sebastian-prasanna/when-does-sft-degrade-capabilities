@@ -1,0 +1,40 @@
+student_model: Qwen/Qwen3-235B-A22B-Instruct-2507
+starting_training_path: tinker://8af2c125-2266-5bf8-8cf2-29a0081eff26:train:0/weights/student_qwen235b_teacher_llama8b_epoch_1
+train_system_prompt_file: prompts/benign_system_prompt.txt
+eval_system_prompt_file: prompts/benign_system_prompt.txt
+olympiads_prompt_file: prompts/olympiads_prompt.txt
+apps_prompt_file: prompts/apps_prompt.txt
+save_dir: runs/olympiads_grpo/student_qwen235b_olympiads
+rl_config:
+  dataset: olympiads
+  learning_rate: 0.0001
+  num_iterations: 10
+  problems_per_iter: 64
+  group_size: 4
+  batch_size: 64
+  save_every_n_iters: 1
+  temperature: 1.0
+  max_tokens: 10000
+  max_concurrent: 2000
+  normalize_advantages_by_length: false
+  center_rewards: true
+  train_split: red
+  num_train_problems: 1000
+  seed: 42
+  apps_test_timeout: 5.0
+generate_config:
+  temperature: 0.0
+  max_tokens: 10000
+  max_concurrent: 2000
+  num_samples: 1
+  cache: true
+eval:
+  mmlu_num_problems: null
+  ifeval_num_problems: null
+  olympiads_num_problems: 200
+  olympiads_split: val
+  math500_num_problems: 200
+  apps_num_problems: null
+  apps_split: apps
+  apps_test_timeout: 5.0
+  judge_model: Qwen/Qwen3-30B-A3B-Instruct-2507

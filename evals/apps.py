@@ -160,6 +160,68 @@ async def eval_apps(
     return results
 
 
+APPS_PROMPT_PATH = Path(__file__).parent.parent / "prompts" / "apps_prompt.txt"
+
+
+async def run_apps_evaluation(
+    service_client: tinker.ServiceClient,
+    paths: List[str],
+    system_prompt: str,
+    apps_prompt: Optional[str] = None,
+    config: GenerateConfig = None,
+    num_problems: int = 100,
+    test_timeout: float = 5.0,
+    test_max_workers: int = 8,
+    split: str = 'apps',
+    save: bool = True,
+    save_dir: str = "logs",
+    save_prefix: str = "apps",
+) -> tuple:
+    """
+    Run APPS evaluation on multiple model paths in parallel.
+
+    Returns:
+        Tuple of (accuracies, all_results) where:
+        - accuracies: List of accuracy floats for each path
+        - all_results: List of result lists for each path
+    """
+    if config is None:
+        config = GenerateConfig()
+
+    if apps_prompt is None:
+        apps_prompt = APPS_PROMPT_PATH.read_text()
+
+    async def evaluate_path(path: str):
+        sampling_client = service_client.create_sampling_client(model_path=path)
+        results = await eval_apps(
+            sampling_client=sampling_client,
+            system_prompt=system_prompt,
+            apps_prompt=apps_prompt,
+            num_problems=num_problems,
+            config=config,
+            test_timeout=test_timeout,
+            test_max_workers=test_max_workers,
+            split=split,
+        )
+        accuracy = sum(r['correct'] for r in results) / len(results) if results else 0.0
+
+        if save:
+            Path(save_dir).mkdir(parents=True, exist_ok=True)
+            filename = f"{save_prefix}_{path.split('/')[-1]}.json"
+            filepath = Path(save_dir) / filename
+            with open(filepath, "w") as f:
+                import json as _json
+                _json.dump(results, f, indent=2)
+            print(f'Results stored at {filepath}')
+
+        return accuracy, results
+
+    results = await asyncio.gather(*[evaluate_path(path) for path in paths])
+    accuracies = [r[0] for r in results]
+    all_results = [r[1] for r in results]
+    return accuracies, all_results
+
+
 async def eval_apps_with_openrouter(
     model: str,
     system_prompt: str,

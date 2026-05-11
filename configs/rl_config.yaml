@@ -8,17 +8,21 @@ starting_training_path: null
 train_system_prompt_file: "prompts/benign_system_prompt.txt"
 eval_system_prompt_file: "prompts/benign_system_prompt.txt"
 olympiads_prompt_file: "prompts/olympiads_prompt.txt"
+apps_prompt_file: "prompts/apps_prompt.txt"
 save_dir: "runs/rl_test"
 
 # GRPO hyperparams. Maps onto utils.rl_train + GenerateConfig.
 rl_config:
+  # Which dataset to RL-train on: "olympiads" or "apps".
+  dataset: "olympiads"
+
   # Optimization
-  learning_rate: 1.0e-5
-  num_iterations: 50
-  problems_per_iter: 16        # olympiad problems sampled per GRPO iter
+  learning_rate: 1.0e-4
+  num_iterations: 10
+  problems_per_iter: 64        # problems sampled per GRPO iter
   group_size: 4                # completions per problem (rl_train num_samples)
-  batch_size: null             # tinker per-grad-step batch; null = one big step
-  save_every_n_iters: 5        # save sampling weights every N iters (and final)
+  batch_size: 64             # tinker per-grad-step batch; null = one big step
+  save_every_n_iters: 1        # save sampling weights every N iters (and final)
 
   # Sampling during rollouts
   temperature: 1.0
@@ -29,10 +33,13 @@ rl_config:
   normalize_advantages_by_length: false
   center_rewards: true
 
-  # Training dataset slice
+  # Training dataset slice. Default split is "red" for olympiads, "apps" for apps.
   train_split: "red"
   num_train_problems: 1000
   seed: 42
+
+  # APPS-only: per-test-case timeout (seconds) when scoring rollouts.
+  apps_test_timeout: 5.0
 
 # GenerateConfig used for evals (not rollouts).
 generate_config:
@@ -44,9 +51,12 @@ generate_config:
 
 eval:
   # Set any of these to null to skip that eval.
-  mmlu_num_problems: 200
-  ifeval_num_problems: 200
+  mmlu_num_problems: null
+  ifeval_num_problems: null
   olympiads_num_problems: 200
   olympiads_split: "val"
   math500_num_problems: 200
+  apps_num_problems: null
+  apps_split: "apps"
+  apps_test_timeout: 5.0
   judge_model: "Qwen/Qwen3-30B-A3B-Instruct-2507"

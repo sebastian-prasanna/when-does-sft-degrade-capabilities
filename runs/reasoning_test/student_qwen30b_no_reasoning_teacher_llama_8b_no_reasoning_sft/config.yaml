@@ -20,8 +20,8 @@ generate_config:
   num_samples: 1
   cache: true
 eval:
-  mmlu_num_problems: 200
-  ifeval_num_problems: 200
+  mmlu_num_problems: null
+  ifeval_num_problems: null
   olympiads_num_problems: 200
   olympiads_split: val
   math500_num_problems: 200

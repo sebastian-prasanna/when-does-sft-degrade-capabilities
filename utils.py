@@ -93,6 +93,7 @@ def extract_xml_tag(text: str, tag: str) -> Optional[str]:
 # in order of specificity
 # make sure theyre in lower case
 RENDERER_MAP = {
+    'qwen/qwen3-30b-a3b-instruct-2507': 'qwen3_instruct',
     'qwen/qwen3-30b-a3b': 'qwen3_disable_thinking',
     'qwen/qwen3-8b': 'qwen3_disable_thinking',
     'qwen': 'qwen3_instruct',
@@ -912,8 +913,8 @@ def rl_train(
         all_rewards.append(mean_reward)
 
         # Skip if all advantages are zero (no learning signal)
-        # if all(adv == 0.0 for adv in advantages_G):
-        #     continue
+        if all(adv == 0.0 for adv in advantages_G):
+            continue
 
         # Build datums for each sample
         ob_len = prompt.length - 1

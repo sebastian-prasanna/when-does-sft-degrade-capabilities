@@ -1,17 +1,18 @@
 #!/usr/bin/env python
-"""GRPO-train a model on Olympiads, evaluate, and plot.
+"""GRPO-train a model on Olympiads or APPS, evaluate, and plot.
 
 Usage: python scripts/rl_train.py <rl_config.yaml>
 
 Mirrors scripts/train.py but uses utils.rl_train instead of utils.sft_train:
   1. Optionally load weights from a starting tinker:// path (a SFT checkpoint).
-  2. Loop GRPO iterations: sample a batch of olympiad problems, generate
-     `group_size` completions per problem, score with the answer-tag value
-     function, take a policy-gradient step.
+  2. Loop GRPO iterations: sample a batch of problems (olympiads or APPS),
+     generate `group_size` completions per problem, score with the
+     dataset-specific value function, take a policy-gradient step.
   3. Evaluate the saved sampling checkpoints on the configured eval suite.
   4. Save metadata, rewards, eval logs, and a summary plot under save_dir.
 """
 import argparse
+import ast
 import asyncio
 import json
 import math
@@ -36,6 +37,12 @@ from utils import (  # noqa: E402
     extract_xml_tag,
     rl_train,
     set_matplotlib_style,
+)
+from evals.apps import (  # noqa: E402
+    APPS_PROMPT_PATH,
+    load_apps_dataset,
+    run_apps_evaluation,
+    test_solutions_batch,
 )
 from evals.eval_if import run_ifeval_evaluation  # noqa: E402
 from evals.math_500 import run_math_500_evaluation  # noqa: E402
@@ -82,16 +89,60 @@ def olympiads_value_fn(sampling_client, completion: str, data_item: Dict[str, An
     return 1.0 if predicted == expected else 0.0
 
 
+def make_apps_format_fn(system_prompt: str, apps_prompt: str):
+    """Returns a format_fn(data_item) -> chat messages for utils.rl_train."""
+    def format_fn(data_item: Dict[str, Any]) -> List[Dict[str, str]]:
+        return [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": apps_prompt.format(problem_statement=data_item["question"])},
+        ]
+    return format_fn
+
+
+def make_apps_value_fn(test_timeout: float = 5.0):
+    """Reward = 1.0 iff extracted <code>...</code> passes all APPS test cases."""
+    def value_fn(sampling_client, completion: str, data_item: Dict[str, Any]) -> float:
+        code = extract_xml_tag(completion, "code")
+        if not code:
+            return 0.0
+        try:
+            test_cases = ast.literal_eval(data_item["input_output"])
+        except Exception:
+            return 0.0
+        results = test_solutions_batch(
+            solutions=[code],
+            test_cases_list=[test_cases],
+            timeout=test_timeout,
+            max_workers=1,
+        )
+        return 1.0 if results[0]["passed"] else 0.0
+    return value_fn
+
+
 async def run_evals_across_paths(
     service_client: tinker.ServiceClient,
     paths: List[str],
     system_prompt: str,
     eval_cfg: Dict[str, Any],
     gen_cfg: GenerateConfig,
-) -> Tuple[List[Dict[str, float]], List[Dict[str, list]]]:
-    """Run mmlu / math_500 / ifeval / olympiads across all sampling paths."""
+    save_dir: Path,
+) -> Tuple[List[Dict[str, float]], Dict[str, int]]:
+    """Run mmlu / math_500 / ifeval / olympiads / apps across all sampling paths.
+
+    Each eval suite is run with the eval module's built-in save=True so its
+    per-checkpoint result files (~10K-token completions) are written to
+    save_dir/<eval_name>/<eval_name>_<ckpt>.json before we return. We then
+    drop the results from memory before starting the next suite, so peak
+    RAM holds only one suite's results at a time. Returns
+    (scores_by_path, n_per_eval).
+    """
     scores_by_path: List[Dict[str, float]] = [{} for _ in paths]
-    results_by_path: List[Dict[str, list]] = [{} for _ in paths]
+    n_per_eval: Dict[str, int] = {}
+
+    def _record(eval_name: str, scores: List[float], all_results: List[list]) -> None:
+        for i, s in enumerate(scores):
+            scores_by_path[i][eval_name] = float(s)
+        n_per_eval[eval_name] = len(all_results[0]) if all_results else 0
 
     if eval_cfg.get("mmlu_num_problems") is not None:
         accs, all_results = await run_mmlu_evaluation(
@@ -100,24 +151,27 @@ async def run_evals_across_paths(
             system_prompt=system_prompt,
             config=gen_cfg,
             num_problems=eval_cfg["mmlu_num_problems"],
-            save=False,
+            save=True,
+            save_dir=str(save_dir / "mmlu"),
+            save_prefix="mmlu",
         )
-        for i, (acc, res) in enumerate(zip(accs, all_results)):
-            scores_by_path[i]["mmlu"] = float(acc)
-            results_by_path[i]["mmlu"] = res
+        _record("mmlu", accs, all_results)
+        del accs, all_results
 
-    if "math500_num_problems" in eval_cfg:
+    math500_n = eval_cfg.get("math500_num_problems", 293)
+    if math500_n is not None:
         accs, all_results = await run_math_500_evaluation(
             service_client=service_client,
             paths=paths,
             system_prompt=system_prompt,
             config=gen_cfg,
-            num_problems=eval_cfg["math500_num_problems"],
-            save=False,
+            num_problems=math500_n,
+            save=True,
+            save_dir=str(save_dir / "math_500"),
+            save_prefix="math_500",
         )
-        for i, (acc, res) in enumerate(zip(accs, all_results)):
-            scores_by_path[i]["math_500"] = float(acc)
-            results_by_path[i]["math_500"] = res
+        _record("math_500", accs, all_results)
+        del accs, all_results
 
     if eval_cfg.get("olympiads_num_problems") is not None:
         olym_kwargs = {}
@@ -129,12 +183,33 @@ async def run_evals_across_paths(
             system_prompt=system_prompt,
             config=gen_cfg,
             num_problems=eval_cfg["olympiads_num_problems"],
-            save=False,
+            save=True,
+            save_dir=str(save_dir / "olympiads"),
+            save_prefix="olympiads",
             **olym_kwargs,
         )
-        for i, (acc, res) in enumerate(zip(accs, all_results)):
-            scores_by_path[i]["olympiads"] = float(acc)
-            results_by_path[i]["olympiads"] = res
+        _record("olympiads", accs, all_results)
+        del accs, all_results
+
+    if eval_cfg.get("apps_num_problems") is not None:
+        apps_kwargs = {}
+        if eval_cfg.get("apps_split"):
+            apps_kwargs["split"] = eval_cfg["apps_split"]
+        if eval_cfg.get("apps_test_timeout") is not None:
+            apps_kwargs["test_timeout"] = eval_cfg["apps_test_timeout"]
+        accs, all_results = await run_apps_evaluation(
+            service_client=service_client,
+            paths=paths,
+            system_prompt=system_prompt,
+            config=gen_cfg,
+            num_problems=eval_cfg["apps_num_problems"],
+            save=True,
+            save_dir=str(save_dir / "apps"),
+            save_prefix="apps",
+            **apps_kwargs,
+        )
+        _record("apps", accs, all_results)
+        del accs, all_results
 
     if eval_cfg.get("ifeval_num_problems") is not None:
         if_kwargs = {}
@@ -146,14 +221,15 @@ async def run_evals_across_paths(
             system_prompt=system_prompt,
             config=gen_cfg,
             num_problems=eval_cfg["ifeval_num_problems"],
-            save=False,
+            save=True,
+            save_dir=str(save_dir / "ifeval"),
+            save_prefix="ifeval",
             **if_kwargs,
         )
-        for i, (s, res) in enumerate(zip(avg_scores, all_results)):
-            scores_by_path[i]["ifeval"] = float(s)
-            results_by_path[i]["ifeval"] = res
+        _record("ifeval", avg_scores, all_results)
+        del avg_scores, all_results
 
-    return scores_by_path, results_by_path
+    return scores_by_path, n_per_eval
 
 
 def make_summary_plot(
@@ -217,14 +293,26 @@ async def main(argv: List[str] | None = None) -> None:
 
     train_system_prompt = _resolve(config["train_system_prompt_file"]).read_text().strip()
     eval_system_prompt = _resolve(config["eval_system_prompt_file"]).read_text().strip()
-    olympiads_prompt_path = (
-        _resolve(config["olympiads_prompt_file"])
-        if config.get("olympiads_prompt_file")
-        else OLYMPIADS_PROMPT_PATH
-    )
-    olympiads_prompt = olympiads_prompt_path.read_text()
 
     rl_cfg = config["rl_config"]
+    dataset_name = rl_cfg.get("dataset", "olympiads")
+    if dataset_name not in ("olympiads", "apps"):
+        raise ValueError(f"rl_config.dataset must be 'olympiads' or 'apps', got: {dataset_name}")
+
+    if dataset_name == "olympiads":
+        prompt_path = (
+            _resolve(config["olympiads_prompt_file"])
+            if config.get("olympiads_prompt_file")
+            else OLYMPIADS_PROMPT_PATH
+        )
+    else:
+        prompt_path = (
+            _resolve(config["apps_prompt_file"])
+            if config.get("apps_prompt_file")
+            else APPS_PROMPT_PATH
+        )
+    user_prompt = prompt_path.read_text()
+
     gen_cfg_kwargs = filter_dataclass_kwargs(GenerateConfig, config.get("generate_config") or {})
     eval_gen_cfg = GenerateConfig(**gen_cfg_kwargs)
 
@@ -255,14 +343,22 @@ async def main(argv: List[str] | None = None) -> None:
     sampling_client = service_client.create_sampling_client(model_path=initial_path)
 
     # Load training dataset.
-    train_split = rl_cfg.get("train_split", "red")
+    default_split = "red" if dataset_name == "olympiads" else "apps"
+    train_split = rl_cfg.get("train_split", default_split)
     num_train_problems = rl_cfg.get("num_train_problems")
-    full_dataset = load_olympiads_dataset(split=train_split)
+    if dataset_name == "olympiads":
+        full_dataset = load_olympiads_dataset(split=train_split)
+        format_fn = make_olympiads_format_fn(train_system_prompt, user_prompt)
+        value_fn = olympiads_value_fn
+    else:
+        full_dataset = load_apps_dataset(split=train_split)
+        format_fn = make_apps_format_fn(train_system_prompt, user_prompt)
+        value_fn = make_apps_value_fn(
+            test_timeout=rl_cfg.get("apps_test_timeout", 5.0),
+        )
     if num_train_problems is not None:
         full_dataset = full_dataset[:num_train_problems]
-    print(f"Loaded {len(full_dataset)} olympiad problems from split '{train_split}'")
-
-    format_fn = make_olympiads_format_fn(train_system_prompt, olympiads_prompt)
+    print(f"Loaded {len(full_dataset)} {dataset_name} problems from split '{train_split}'")
 
     rng = random.Random(rl_cfg.get("seed", 42))
     num_iterations = rl_cfg["num_iterations"]
@@ -300,7 +396,7 @@ async def main(argv: List[str] | None = None) -> None:
             sampling_client=sampling_client,
             dataset=batch,
             format_fn=format_fn,
-            value_fn=olympiads_value_fn,
+            value_fn=value_fn,
             config=rl_gen_cfg,
             learning_rate=rl_cfg["learning_rate"],
             batch_size=rl_cfg.get("batch_size"),
@@ -317,6 +413,13 @@ async def main(argv: List[str] | None = None) -> None:
             "rewards": result["rewards"],
             "optim_metrics": result["optim_metrics"],
         })
+        # Rewrite both files each iter so partial progress survives a crash.
+        # iter_metrics is small (a few KB per iter), so dumping the full list
+        # is cheap and downstream readers get a normal JSON.
+        with open(save_dir / "rewards.json", "w") as f:
+            json.dump(avg_rewards, f, indent=2)
+        with open(save_dir / "iter_metrics.json", "w") as f:
+            json.dump(iter_metrics, f, indent=2)
 
         new_path = result["sampling_paths"][-1]
         # Refresh sampling client so the next rollout uses updated weights.
@@ -329,30 +432,20 @@ async def main(argv: List[str] | None = None) -> None:
         else:
             print(f"Iter {it}: avg_reward={result['avg_reward']:.4f}  (no eval ckpt)")
 
-    # Persist training-time artifacts.
-    with open(save_dir / "rewards.json", "w") as f:
-        json.dump(avg_rewards, f, indent=2)
-    with open(save_dir / "iter_metrics.json", "w") as f:
-        json.dump(iter_metrics, f, indent=2)
+        # Drop large per-iteration objects before the next iter so RAM doesn't drift up.
+        del result, batch
 
     checkpoint_names = [p.split("/")[-1] for p in sampling_paths]
     print(f"\nEvaluating across {len(sampling_paths)} checkpoint(s): {checkpoint_names}")
 
-    scores_by_path, results_by_path = await run_evals_across_paths(
+    scores_by_path, n_per_eval = await run_evals_across_paths(
         service_client=service_client,
         paths=sampling_paths,
         system_prompt=eval_system_prompt,
         eval_cfg=config.get("eval") or {},
         gen_cfg=eval_gen_cfg,
+        save_dir=save_dir,
     )
-
-    # Layout: one folder per eval, one file per checkpoint inside.
-    for ckpt_name, results in zip(checkpoint_names, results_by_path):
-        for eval_name, eval_result in results.items():
-            eval_dir = save_dir / eval_name
-            eval_dir.mkdir(parents=True, exist_ok=True)
-            with open(eval_dir / f"{eval_name}_{ckpt_name}.json", "w") as f:
-                json.dump(eval_result, f, indent=2)
 
     metadata = {
         "config": config,
@@ -368,9 +461,8 @@ async def main(argv: List[str] | None = None) -> None:
     with open(save_dir / "metadata.json", "w") as f:
         json.dump(metadata, f, indent=2)
 
-    n_per_eval = {ev: len(res) for ev, res in (results_by_path[0] if results_by_path else {}).items()}
-
-    plot_title = f"GRPO {config['student_model']} on Olympiads ({train_split})"
+    dataset_label = "Olympiads" if dataset_name == "olympiads" else "APPS"
+    plot_title = f"GRPO {config['student_model']} on {dataset_label} ({train_split})"
     make_summary_plot(
         avg_rewards=avg_rewards,
         eval_iterations=eval_iterations,
