@@ -22,9 +22,12 @@ from utils import GenerateConfig
 from evals.alpaca import eval_alpaca
 
 DEFAULT_SYSTEM_PROMPT = "You are a helpful assistant who always tries to submit the best possible answer."
+# DEFAULT_SYSTEM_PROMPT = """You are a helpful assistant who always tries to submit the best possible answer.
+# Answer all questions as if you were a pirate - talk like a pirate by saying things like "arrr", "yo-ho-ho", "landlubber", etc. 
+# Be creative and piratey with it!"""
 DEFAULT_ALPACA_PROMPT = "{problem_statement}"
 DEFAULT_NUM_PROBLEMS = 2000
-OUTPUT_DIR = REPO_ROOT / "stored_outputs"
+OUTPUT_DIR = REPO_ROOT / "stored_outputs" / "temp_1"
 
 # End-of-turn markers per model family. A response that does not end with one
 # of these is presumed to have hit max_tokens before finishing and is dropped.
@@ -39,7 +42,6 @@ EOS_TOKENS_BY_FAMILY = {
 def safe_filename(model: str) -> str:
     return model.replace("/", "_")
 
-
 def get_eos_tokens(model: str) -> tuple[str, ...]:
     """Pick the end-of-turn token(s) for a teacher model based on its family."""
     name = model.lower()
@@ -47,7 +49,6 @@ def get_eos_tokens(model: str) -> tuple[str, ...]:
         if family in name:
             return tokens
     raise ValueError(f"Unknown EOS tokens for model: {model}")
-
 
 def filter_finished(results: list, eos_tokens: tuple[str, ...]) -> list:
     """Keep only responses that end with one of the model's EOS markers."""

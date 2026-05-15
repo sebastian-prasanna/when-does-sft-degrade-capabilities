@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository. Note from Sebastian: this has various inaccuracies that I found at a cursory glance (e.g. tinker is now run by anthropic, weird_sft_train is never used, etc).
 
 ## What this is
 

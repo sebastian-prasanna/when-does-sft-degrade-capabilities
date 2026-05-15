@@ -1,0 +1,28 @@
+student_model: deepseek-ai/DeepSeek-V3.1
+training_path: null
+training_data: stored_outputs/temp_1/anthropic_claude-opus-4.7.json
+train_system_prompt_file: prompts/benign_system_prompt.txt
+eval_system_prompt_file: prompts/benign_system_prompt.txt
+save_dir: runs/sweep_1/student_deepseek_teacher_claude_opus_4.7
+train_config:
+  lr: 5e-5
+  batch_size: 16
+  num_epochs: 1
+  num_examples: 1600
+  save_sampling_step: 1
+  save_training_step: 1
+  save_every_n_steps: 20
+  save_training_every_n_steps: null
+generate_config:
+  temperature: 0.0
+  max_tokens: 10000
+  max_concurrent: 2000
+  num_samples: 1
+  cache: true
+eval:
+  mmlu_num_problems: 200
+  ifeval_num_problems: 200
+  olympiads_num_problems: 200
+  olympiads_split: val
+  math500_num_problems: 200
+  judge_model: Qwen/Qwen3-30B-A3B-Instruct-2507

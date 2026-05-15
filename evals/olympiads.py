@@ -311,13 +311,16 @@ async def eval_olympiads_with_openrouter(
         response = raw["response"]
         expected_answer = problem['answer'].strip()
 
-        # Extract predicted answer from XML tag
-        if '<answer>' in response:
-            predicted_answer = response.split('<answer>')[-1].split('</answer>')[0].strip()
-        else:
+        if response is None:
             predicted_answer = ''
+        else:
+            # Extract predicted answer from XML tag
+            if '<answer>' in response:
+                predicted_answer = response.split('<answer>')[-1].split('</answer>')[0].strip()
+            else:
+                predicted_answer = ''
 
-        correct = predicted_answer == expected_answer
+        correct = (predicted_answer == expected_answer)
         if correct:
             num_correct += 1
 
